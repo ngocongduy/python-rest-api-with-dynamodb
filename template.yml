@@ -1,0 +1,315 @@
+Description: "Microservice API and Auth settings"
+Transform: "AWS::Serverless-2016-10-31"
+
+Parameters:
+  DynamoTable:
+    Default: TestTable
+    Type: String
+  FirstTableIndexName:
+    Default: GI_one
+    Type: String
+  BucketName:
+    Default: my-static-html
+    Type: String
+
+Globals:
+  Function:
+    Timeout: 10
+    MemorySize: 512
+    Runtime: python3.6
+    Environment:
+      Variables:
+        DYNAMODB_TABLE: !Ref DynamoTable
+        FIRST_GLOBAL_INDEX_NAME: !Ref FirstTableIndexName
+        BUCKET_NAME: !Ref BucketName
+
+Resources:
+  DynamoDbTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    Properties:
+      AttributeDefinitions:
+        -
+          AttributeName: def_key
+          AttributeType: S
+        -
+          AttributeName: pid
+          AttributeType: N
+      KeySchema:
+        -
+          AttributeName: def_key
+          KeyType: HASH
+        -
+          AttributeName: pid
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      TableName: !Ref DynamoTable
+      GlobalSecondaryIndexes:
+        -
+          IndexName: GI_one
+          KeySchema:
+            -
+              AttributeName: pid
+              KeyType: "HASH"
+          Projection:
+            ProjectionType: "KEYS_ONLY"
+          ProvisionedThroughput:
+            ReadCapacityUnits: 1
+            WriteCapacityUnits: 1
+        -
+          IndexName: !Ref FirstTableIndexName
+          KeySchema:
+            - AttributeName: pid
+              KeyType: "HASH"
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            ReadCapacityUnits: 1
+            WriteCapacityUnits: 1
+
+
+  LambdaRoleToAccessDynamo:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: !Join [ "", [ "/", !Ref "AWS::StackName", "/" ] ]
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: "ReadWriteTable"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              -
+                Sid: ReadWriteTable
+                Effect: "Allow"
+                Action:
+                  - "dynamodb:BatchGetItem"
+                  - "dynamodb:GetItem"
+                  - "dynamodb:Query"
+                  - "dynamodb:Scan"
+                  - "dynamodb:BatchWriteItem"
+                  - "dynamodb:PutItem"
+                  - "dynamodb:UpdateItem"
+                Resource: "arn:aws:dynamodb:*:*:table/*"
+              -
+                Sid: GetStreamRecords
+                Effect: "Allow"
+                Action:
+                  - "dynamodb:GetRecords"
+                Resource: "arn:aws:dynamodb:*:*:table/*/stream/* "
+              -
+                Sid: WriteLogStreamsAndGroups
+                Effect: "Allow"
+                Action:
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "*"
+              -
+                Sid: CreateLogGroup
+                Effect: "Allow"
+                Action:
+                  - "logs:CreateLogGroup"
+                Resource: "*"
+
+  LambdaRoleToFullAccessDynamo:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: !Join [ "", [ "/", !Ref "AWS::StackName", "/" ] ]
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: "FullAccessTable"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: FullAccessDynamoDB
+                Effect: "Allow"
+                Action:
+                  - "dynamodb:*"
+                Resource: "arn:aws:dynamodb:*:*:table/*"
+              - Sid: WriteLogStreamsAndGroups
+                Effect: "Allow"
+                Action:
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "*"
+              - Sid: CreateLogGroup
+                Effect: "Allow"
+                Action:
+                  - "logs:CreateLogGroup"
+                Resource: "*"
+
+  LambdaRoleDynamoAndS3:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: !Join [ "", [ "/", !Ref "AWS::StackName", "/" ] ]
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: "FullAccessTable"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: FullAccessDynamoDB
+                Effect: "Allow"
+                Action:
+                  - "dynamodb:*"
+                Resource: "arn:aws:dynamodb:*:*:table/*"
+              - Sid: WriteLogStreamsAndGroups
+                Effect: "Allow"
+                Action:
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "*"
+              - Sid: CreateLogGroup
+                Effect: "Allow"
+                Action:
+                  - "logs:CreateLogGroup"
+                Resource: "*"
+        - PolicyName: "S3GetAndPut"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              -
+                Sid: GetAndPut
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub "arn:aws:s3:::*/*"
+
+
+  GetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/GetFunction
+      Handler: GetFunction.get.get
+      Runtime: python3.6
+      Role: !GetAtt LambdaRoleToAccessDynamo.Arn
+      Events:
+        GetById:
+          Type: Api
+          Properties:
+            Path: /get
+            Method: post
+
+  GetByPidFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/GetByPidFunction
+      Handler: GetByPidFunction.get.get_by_pid
+      Runtime: python3.6
+      Role: !GetAtt LambdaRoleToAccessDynamo.Arn
+      Events:
+        GetById:
+          Type: Api
+          Properties:
+            Path: /get-by-pid
+            Method: post
+
+  CreateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/CreateFunction
+      Handler: CreateFunction.create.create
+      Runtime: python3.6
+      Role: !GetAtt LambdaRoleToAccessDynamo.Arn
+      Events:
+        PostCreate:
+          Type: Api
+          Properties:
+            Path: /create
+            Method: post
+
+  DeleteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/DeleteFunction
+      Handler: DeleteFunction.delete.delete
+      Runtime: python3.6
+      Role: !GetAtt LambdaRoleToFullAccessDynamo.Arn
+      Events:
+        PostCreate:
+          Type: Api
+          Properties:
+            Path: /delete
+            Method: post
+
+  ListByDefKeyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/ListByDefKeyFunction
+      Handler: ListByDefKeyFunction.list.list
+      Runtime: python3.6
+      Role: !GetAtt LambdaRoleToAccessDynamo.Arn
+      Events:
+        PostCreate:
+          Type: Api
+          Properties:
+            Path: /list-by-def-key
+            Method: post
+
+  ReturnImageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/ReturnImageFunction
+      Handler: ReturnImageFunction.app.handle
+      Runtime: python3.6
+      Role: !GetAtt LambdaRoleDynamoAndS3.Arn
+      Events:
+        PostCreate:
+          Type: Api
+          Properties:
+            Path: /get-file/{id}
+            Method: get
+  UploadImageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/UploadImageFunction
+      Handler: UploadImageFunction.app.handle
+      Runtime: python3.6
+      Role: !GetAtt LambdaRoleDynamoAndS3.Arn
+      Events:
+        PostCreate:
+          Type: Api
+          Properties:
+            Path: /upload-file/{id}
+            Method: post
+
+Outputs:
+  # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
+  # Find out more about other implicit resources you can reference within SAM
+  # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
+  HelloWorldApi:
+    Description: "API Gateway endpoint URL for Prod stage for Hello World function"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+  LambdaRoleToAccessDynamoArn:
+    Description: "LambdaRoleToAccessDynamo Arn"
+    Value: !GetAtt LambdaRoleToAccessDynamo.Arn
+  DynamoTableArn:
+    Description: "DynamoDbTable Arn"
+    Value: !GetAtt DynamoDbTable.Arn

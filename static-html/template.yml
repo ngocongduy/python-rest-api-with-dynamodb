@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  BucketName:
+    Default: my-static-html-new
+    Type: String
+  LogBucketName:
+    Default: my-static-html-new-logs
+    Type: String
+
+Resources:
+  CloudFrontOriginAccessIdentity:
+    Type: 'AWS::CloudFront::CloudFrontOriginAccessIdentity'
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: 'Serverless website OA'
+
+  myDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !GetAtt S3Bucket.DomainName #!Sub "${BucketName}.s3-website-${AWS::Region}.amazonaws.com"
+            Id: myS3Origin
+            S3OriginConfig:
+              OriginAccessIdentity:
+                Fn::Sub: 'origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}'
+        Enabled: 'true'
+        Comment: Some comment
+        DefaultRootObject: index.html
+        Logging:
+          IncludeCookies: 'false'
+          Bucket: !Ref S3LogBucket
+#          Prefix: myprefix
+#        Aliases:
+#          - mysite.example.com
+#          - yoursite.example.com
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+#            - PATCH
+#            - POST
+#            - PUT
+#            - DELETE
+          TargetOriginId: myS3Origin
+          ForwardedValues:
+            QueryString: 'false'
+            Cookies:
+              Forward: none
+#          TrustedSigners:
+#            - 1234567890EX
+#            - 1234567891EX
+          ViewerProtocolPolicy: allow-all
+        PriceClass: PriceClass_200
+#        Restrictions:
+#          GeoRestriction:
+#            RestrictionType: whitelist
+#            Locations:
+#              - VN
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: 'true'
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+  S3LogBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        # Restricting access to cloudfront only.
+        Statement:
+          -
+            Sid: Allow OAI
+            Effect: Allow
+            Action: 's3:GetObject'
+            Resource:
+              - !Sub "arn:aws:s3:::${S3Bucket}/*"
+            Principal:
+              AWS: !Sub "arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${CloudFrontOriginAccessIdentity}"
+
+Outputs:
+  CDN:
+    Description: Value to
+    Value:
+      Fn::GetAtt:
+      - myDistribution
+      - DomainName
